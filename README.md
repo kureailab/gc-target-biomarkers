@@ -9,7 +9,7 @@ The `kure.ai` target discovery pipeline is agile and data-driven. The initial se
 [1] ![target_discovery_tline](resource/images/target_discovery_timeline.png)
 
 ### Unbiased data-driven approach
-For a prototype design, we chose a stomach cancer and compiled 1027 bulk RNA-Seq samples from 10 gastric cancer cohorts and nearly ~1M cells from 10 scRNA-Seq cohorts.
+For a prototype design, we chose a stomach cancer and compiled 1027 bulk RNA-Seq samples from 10 gastric cancer cohorts and nearly ~0.5M cells from 10 scRNA-Seq cohorts.
 
 [2]
 
