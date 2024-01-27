@@ -4,18 +4,18 @@ graphics.off()
 closeAllConnections()
 rm(list=ls())
 
-proj_d=".."
-setwd(file.path(proj_d,"code"))
+proj_d="../.."
+setwd(file.path(proj_d,"code","de_genes"))
 source(file.path(proj_d,'code','lib_project.r'))
 
 fpath_dt <- get_current_script_fpath()
-proj_info = get_proj_info(debug2=0)
+proj_info = get_proj_info(task_d=fpath_dt$parentd,debug2=0)
 
 # main()
 # >==========
 args <- data.table(reuse=0,
 									 exptag="register_dbs",
-									 rds_pats='../../results/d01.GC_cohorts/b02a02_update_cohorts/*.rds',
+									 rds_pats='../../../results/de_genes/b02a02_update_cohorts/*.rds',
 									 gene_annot_d = '~/projects/refdb/gene_annotation_for_anitbody',
 									 ncpu=1,
 									 debug=0)
@@ -35,6 +35,7 @@ names(rds_fpaths) = sapply(rds_fpaths,function(rds_fpath) {
 
 imap(rds_fpaths, function(rds_fpath,db_entry) {
   message(db_entry)
+  rds_fpath = R.utils::getAbsolutePath(rds_fpath)
   update_db_resource(query_name=db_entry, rds_fpath=rds_fpath)
   NA
 })

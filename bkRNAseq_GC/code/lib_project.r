@@ -38,11 +38,16 @@ get_proj_info=function(task_d=NA,debug2=0) {
     if (is.na(task_d)) {
       target_d=file.path(proj_d,sub_d) %>%
         R.utils::getAbsolutePath()
+      create_dir_if_not_exist(target_d)
     } else {
       target_d=file.path(proj_d,sub_d,task_d) %>%
         R.utils::getAbsolutePath()
+      
+      if (sub_d=='results') {
+        create_dir_if_not_exist(target_d)
+      }
     }
-    create_dir_if_not_exist(target_d)
+
   })
   
   a=data.table(data=proj_dirs$data,
@@ -336,9 +341,15 @@ ici4_cohort_names <- function() {
 
 
 annotate_deg_w_potential_target <- function(deg_freq.l,
+                                            order_by1='n_cnt',
+                                            order_by2='max.mlog10pv',
                                             coota_min_pct=0.05,
                                             coota_nz.expr=0.25,
-                                            gtex_ntpm_co=25) {
+                                            gtex_ntpm_co=25,
+                                            debug2=0) {
+  if (debug2==1) {browser()}
+  
+  stopifnot('gene' %in% colnames(deg_freq.l[[1]]))
   
   genes = rbindlist(deg_freq.l) %>%
     dplyr::pull(gene) %>%
@@ -384,7 +395,7 @@ annotate_deg_w_potential_target <- function(deg_freq.l,
       merge(hpa.ann, by="gene", all.x=T) %>%
       merge(cosmic.ann, by="gene", all.x=T) %>%
       merge(gtex_ntpm.ann,by="gene",all.x=T) %>%
-      dplyr::arrange(-n_cnt, -sum.mlog10pv) %>%
+      dplyr::arrange(-get(order_by1),-get(order_by2)) %>%
       as.data.table()
     
     # <-------------
@@ -398,9 +409,209 @@ annotate_deg_w_potential_target <- function(deg_freq.l,
     deg_freq.dt[brain<gtex_ntpm_co & stomach<gtex_ntpm_co & colon<gtex_ntpm_co & esophagus<gtex_ntpm_co, 
                 priority:=sprintf('%s;gtex_brain_gi<%d',priority,gtex_ntpm_co)]
     deg_freq.dt[,priority:=gsub("^;","",priority)]
-    deg_freq.dt[order(-n_cnt, -max.mlog10pv)]
+
     deg_freq.dt
   })
   deg_freq.l
 }
 # <----
+
+deg_test_blkRNAseq_TvGTEx <- function(assay='gene') {
+  # look for tumor only cohorts
+  bgc_lookup = load_obj_from_db(query_name="lookup.cohort")
+  query_db = bgc_lookup$db %>%
+    dplyr::filter((grepl('T',sample_key) & !grepl('N',sample_key))|cohort=="gtex")
+  
+  row_index = 1:nrow(query_db)
+  names(row_index) = query_db$cohort
+  
+  slot="abundance"
+  s2m.lst = load_obj_from_db(query_name = "gtex_s2m")
+  feats=rownames(s2m.lst[[assay]]$txi[[slot]])
+  
+  plan2(ncpu=length(row_index))
+  #combine the tumor-only cohorts and generate a union gene expression matrix
+  fxs.m = future_imap(row_index, function(r2, cohort) {
+    s2m.lst = load_obj_from_db(query_name = query_db$db_entry[r2])
+    ret = NA
+    if (assay %in% names(s2m.lst)) {
+      ret = reshape2::melt(s2m.lst[[assay]]$txi[[slot]],
+                           varnames=c('feat','sample'),
+                           value.name = 'expr')
+    }
+    ret
+  }) %>% `[`(!is.na(.)) %>% 
+    rbindlist() %>%
+    dplyr::filter(feat %in% feats) %>%
+    acast(feat ~ sample, value.var = 'expr')
+  
+  smeta.dt = future_imap(row_index, function(r2, cohort) {
+    s2m.lst = load_obj_from_db(query_name = query_db$db_entry[r2])
+    smeta=s2m.lst$smeta[,list(sample)]
+    smeta$cohort=cohort
+    smeta
+  }) %>% rbindlist()
+  smeta.dt[,tumor_normal:="Tumor"]
+  smeta.dt[cohort=="gtex",tumor_normal:="Normal"]
+  plan2()
+  
+  stopifnot(!any(duplicated(smeta.dt$sample)))
+  
+  #batch effect removal
+  dim(fxs.m)
+  dim(smeta.dt)
+  
+  # 
+  fxs.m[is.na(fxs.m)] = 0
+  fxs.m=fxs.m[(rowSums(fxs.m)>0.),]
+  fxs.m=fxs.m[,colSums(fxs.m)>0]
+  
+  snames = intersect(colnames(fxs.m),smeta.dt$sample)
+  fxs.m = fxs.m[,snames]
+  
+  smeta.dt = smeta.dt[match(snames,sample),]
+  stopifnot(identical(smeta.dt$sample, colnames(fxs.m)))
+  
+  # use combat to align the tumor-only cohorts to GTEx
+  fxs_log1p_combat.m = sva::ComBat(dat=log1p(fxs.m),
+                                   batch=smeta.dt$cohort,
+                                   ref.batch = 'gtex')
+  
+  
+  resp_column="tumor_normal"
+  deg_obj = prep_wilcox_test(fxs.mtx = fxs_log1p_combat.m,
+                             smeta.dt = smeta.dt,
+                             comp_col = resp_column,
+                             ctrl_var = 'Normal',
+                             expr_var = 'Tumor',
+                             test_method = "wilcox",
+                             debug2 = 0,
+                             comp_name = "tumor.only_vs_gtex")
+  
+  deg_obj$comp_var.orig = ''
+  deg_obj = run_wilcoxon_test(deg_obj=deg_obj,
+                              logExpr=1)
+  deg_obj
+}
+
+
+deg_test_blkRNAseq_pairedTvN <- function(assay='gene') {
+  bgc_lookup = load_obj_from_db(query_name="lookup.cohort")
+  
+  query_db = bgc_lookup$db %>%
+    dplyr::filter(grepl('T',sample_key) & grepl('N',sample_key))
+  
+  row_index = 1:nrow(query_db)
+  names(row_index) = query_db$cohort
+  
+  plan2(ncpu=length(row_index))
+  deg.lst = future_imap(row_index, function(r2,cohort) { #future_
+    message(cohort)
+    
+    s2m.lst = load_obj_from_db(query_name=query_db$db_entry[r2][[1]])
+    
+    ret = NA
+    if (assay %in% names(s2m.lst)) {
+      message(sprintf('found the assay [%s] from %s ...',assay,cohort))
+      # sync sample meta to perform wilcox-based DEG
+      s2m.l = sync_s2m_for_comparison(cohort=cohort,
+                                      s2m = s2m.lst,
+                                      assay = assay,
+                                      comp_meta="tumor_normal", 
+                                      celltype="PanCK+", #applies only spark23
+                                      debug2=0)
+      
+      # browser()
+      stopifnot(identical(dim(s2m.l$fxs.m)[2],
+                          dim(s2m.l$smeta)[1]))
+      
+      if (cohort != "spark23") { # Nanostring GeoMx is normalized by vst which is already log scaled.
+        s2m.l$fxs.m=s2m.l$fxs.m %>%
+          log1p()
+      }
+      
+      cnames=colnames(s2m.l$smeta)
+      resp_column="tumor_normal"
+      
+      deg_obj = prep_wilcox_test(fxs.mtx = s2m.l$fxs.m,
+                                 smeta.dt = s2m.l$smeta,
+                                 comp_col = resp_column,
+                                 ctrl_var = 'Normal',
+                                 expr_var = 'Tumor',
+                                 test_method = "wilcox",
+                                 debug2 = 0,
+                                 comp_name = query_db$cohort[r2])
+      
+      deg_obj$comp_var.orig = ''
+      deg_obj = run_wilcoxon_test(deg_obj=deg_obj,
+                                  logExpr=1)
+      ret = deg_obj$deg.dt
+    }
+    ret
+  }) %>% `[`(!is.na(.))
+  plan2()
+  deg.lst
+}
+
+add_deg_annot_header <- function() {
+  col_head_str = "gene: gene symbol,
+feat:ensembl transcript id (isoform),
+n_cnt:# of cohorts with P.Value<0.05,
+gene_tx:gene transcript id (isoform),
+observed_in: cohorts with P.Value<0.05,
+m.P.Value:mean(P.Value),
+sum.mlog10pv:sum(-log10(P.Value)),
+m.mlog10pv:mean(-log10(P.Value)),
+m.ctrlMean:mean(mRNA expression level in normal-like samples in log(TPM)),
+m.exprMean:mean(mRNA expression level in tumor-like samples in log(TPM)),
+max.mlog10pv:max(P.Value),
+m.meanExpr_diff:mean(exprMean-ctrlMean),
+gene_desc:gene description,
+druggable:omnipath - drug information,
+surface_protein:omnpath - surface/endogeneous proteins,
+hpa_rna.specific.nTPM:HPA - nTPM specfic to certain organ,
+hpa_rna.brain.regional.specificity:HPA - brain regional specificity,
+hpa_rna.cancer.specific.fpkm:HPA - FPKM specific to cancer organ,
+hpa_pathology.prog.stomach.cancer:HPA - pathology prognosis in stomach cancer,
+cosmic_gene.ids:COSMIC,
+cosmic_hallmarks:COSMIC,
+aorta:GTEx - TPM,
+blood:GTEx - TPM,
+brain:GTEx - TPM,
+breast:GTEx - TPM,
+colon:GTEx - TPM,
+coronary.artery:GTEx - TPM,
+EBV.transformed.lymphocyte:GTEx - TPM,
+esophagus:GTEx - TPM,
+greater.omentum:GTEx - TPM,
+heart:GTEx - TPM,
+kidney:GTEx - TPM,
+liver:GTEx - TPM,
+lower.leg.skin:GTEx - TPM,
+lung:GTEx - TPM,
+minor.salivary.gland:GTEx - TPM,
+pancreas:GTEx - TPM,
+prostate.gland:GTEx - TPM,
+skeletal.muscle.tissue:GTEx - TPM,
+spinal.chord:GTEx - TPM,
+spleen:GTEx - TPM,
+stomach:GTEx - TPM,
+subcutaneous.adipose.tissue:GTEx - TPM,
+suprapubic.skin:GTEx - TPM,
+testis:GTEx - TPM,
+thyroid.gland:GTEx - TPM,
+tibial.artery:GTEx - TPM,
+tibial.nerve:GTEx - TPM,
+transformed.skin.fibroblast:GTEx - TPM,
+urinary.bladder:GTEx - TPM,
+vagina:GTEx - TPM,
+priority:gtex_brain_gi < n (GTEx.TPM@brain & colon & stomach<n); surface (omnipath); druggable (omnipath),
+ranking_idx:sorted by max.mlog10pv w/ descreasing"
+  
+  heads=comma_string_to_list(col_head_str, sep = ',')
+  head_desc.dt = lapply(heads,function(head){
+    data.table(column=tstrsplit(head,':')[[1]],
+               desc=tstrsplit(head,':')[[2]])
+  }) %>% rbindlist()
+  head_desc.dt
+}

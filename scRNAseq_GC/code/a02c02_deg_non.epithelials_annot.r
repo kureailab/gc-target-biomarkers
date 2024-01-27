@@ -82,7 +82,8 @@ deg_freq.l = readRDS(args$deg_rds.fpath) %>%
 
 # >======
 # annoate gene description
-deg_freq_annot.l = annotate_deg_w_potential_target(deg_freq.l,gtex_ntpm_co = args$gtex_ntpm_co)
+deg_freq_annot.l = annotate_deg_w_potential_target(deg_freq.l,
+                                                   gtex_ntpm_co = args$gtex_ntpm_co)
 
 #tier0: gtex_brain_GI<co & either surface or stomach_cancer annotated from HPA
 #tier1: gtex_brain_GI<co & either surface and druggable (more strigent)

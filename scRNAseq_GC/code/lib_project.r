@@ -47,15 +47,19 @@ get_proj_info=function(task_d=NA,debug2=0) {
 	sub_dirs = c('data','results','code')
 	names(sub_dirs) = sub_dirs
 	proj_dirs = imap(sub_dirs,function(sub_d,dmy) {
-		if (debug2==1){browser()}
-		if (is.na(task_d)) {
-			target_d=file.path(proj_d,sub_d) %>%
-				R.utils::getAbsolutePath()
-		} else {
-			target_d=file.path(proj_d,sub_d,task_d) %>%
-				R.utils::getAbsolutePath()
-		}
-		create_dir_if_not_exist(target_d)
+	  if (debug2==1){browser()}
+	  if (is.na(task_d)) {
+	    target_d=file.path(proj_d,sub_d) %>%
+	      R.utils::getAbsolutePath()
+	    create_dir_if_not_exist(target_d)
+	  } else {
+	    target_d=file.path(proj_d,sub_d,task_d) %>%
+	      R.utils::getAbsolutePath()
+	    
+	    if (sub_d=='results') {
+	      create_dir_if_not_exist(target_d)
+	    }
+	  }
 	})
 	
 	a=data.table(data=proj_dirs$data,

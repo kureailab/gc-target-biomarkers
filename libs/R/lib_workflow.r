@@ -633,6 +633,7 @@ register_db_table <- function(entry.dt, file.obj=NULL, res.dt=NULL, update=1,deb
 
 load_obj_from_db <- function(query_name, debug2=0) {
 	if (debug2==1){browser()}
+  message(sprintf('to load [%s] ...',query_name))
 	target_idx = get_db_idx(query_name, debug2=debug2)
 	file.obj = list()
 	if (!isEmpty(target_idx)) {

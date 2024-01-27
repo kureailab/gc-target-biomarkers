@@ -925,11 +925,11 @@ gamlss_deg_testing <- function(deg_obj,ncpu=8,debug2=0) {
 	
 	if (debug2==1){browser()}
 	
-	stopifnot(all(colnames(deg_obj$fxs.mtx) %in% deg_obj$smeta$sample))
-	deg_obj$smeta = deg_obj$smeta[match(colnames(deg_obj$fxs.mtx),sample),]
+	stopifnot(all(colnames(deg_obj$fxs.m) %in% deg_obj$smeta$sample))
+	deg_obj$smeta = deg_obj$smeta[match(colnames(deg_obj$fxs.m),sample),]
 	
 	smeta=deg_obj$smeta
-	# fxs.mtx = deg_obj$gexpr
+	# fxs.m = deg_obj$gexpr
 	comp_col=deg_obj$comp_var
 	stopifnot(comp_col %in% colnames(smeta))
 	
@@ -941,7 +941,7 @@ gamlss_deg_testing <- function(deg_obj,ncpu=8,debug2=0) {
 	subj_col=deg_obj$sub_col
 	deg_obj$deg.dt = NA
 	
-	deg2.dt = get_deg_mean_gexp(deg_obj$fxs.mtx,smeta,comp_col=comp_col,comp_vars=comp_vars)
+	deg2.dt = get_deg_mean_gexp(deg_obj$fxs.m,smeta,comp_col=comp_col,comp_vars=comp_vars)
 	
 	sample_cnt.dt = smeta[,.N,by=comp_col] %>%
 		as.data.table()
@@ -954,13 +954,13 @@ gamlss_deg_testing <- function(deg_obj,ncpu=8,debug2=0) {
 		colnames(design) <- c("All", target_col)
 		y = design[,target_col]
 		
-		fxs.mtx = t(deg_obj$fxs.mtx) %>% #row-wise scaling
+		fxs.m = t(deg_obj$fxs.m) %>% #row-wise scaling
 			scale() %>%
 			t()
 		
-		feats = rownames(fxs.mtx)
-		gamlss.dt = mclapply(1:nrow(fxs.mtx),function(r2) { # for each feat
-			reg.out = gamlss_logit_with_tryCatch(y,fxs.mtx[r2,])
+		feats = rownames(fxs.m)
+		gamlss.dt = mclapply(1:nrow(fxs.m),function(r2) { # for each feat
+			reg.out = gamlss_logit_with_tryCatch(y,fxs.m[r2,])
 			# message(feats[[r2]])
 			if (invalid(reg.out)) {
 				reg.out = data.table(logFC=NA,
@@ -1009,14 +1009,14 @@ gamlss_deg_testing <- function(deg_obj,ncpu=8,debug2=0) {
 }
 
 #########################
-binomial_out_regression <- function(fxs.mtx,y,scale_input=1,ncpu=8,debug2=0) {
+binomial_out_regression <- function(fxs.m,y,scale_input=1,ncpu=8,debug2=0) {
 	
 	if (debug2==1){browser()}
 	
-	gamlss.dt = rbindlist(mclapply(1:nrow(fxs.mtx),function(r2) {
+	gamlss.dt = rbindlist(mclapply(1:nrow(fxs.m),function(r2) {
 		message(r2)
 		if (debug2==1){browser()}
-		x=as.vector(unlist(fxs.mtx[r2,]))
+		x=as.vector(unlist(fxs.m[r2,]))
 		
 		if (scale_input==1) {x=scale(x)}
 		
@@ -1029,7 +1029,7 @@ binomial_out_regression <- function(fxs.mtx,y,scale_input=1,ncpu=8,debug2=0) {
 	))
 	
 	# if (debug2==1) {browser()}
-	gamlss.dt$rn = rownames(fxs.mtx)
+	gamlss.dt$rn = rownames(fxs.m)
 	colnames(gamlss.dt) = c("logFC","std_err","t","P.Value","rn")
 	gamlss.dt$adj.P.Val = p.adjust(gamlss.dt$P.Value, method = "BH")
 	gamlss.dt
@@ -3190,7 +3190,7 @@ map_geneSymbol_ensemblGenes <- function(genes,convert_to="GENEID",debug2=0) {
 	gene_map2[!is.na(GENEID) & !is.na(SYMBOL),]
 }
 
-get_deg_mean_gexp <- function(fxs.mtx,smeta,comp_var="comp_group",comp_vars=list(ctrl="ctrl",expr="expr"),logExpr=1,debug2=0) {
+get_deg_mean_gexp <- function(fxs.m,smeta,comp_var="comp_group",comp_vars=list(ctrl="ctrl",expr="expr"),logExpr=1,debug2=0) {
 	
 	if (debug2==1) {browser()}
 	design <- model.matrix(~factor(smeta[[comp_var]],
@@ -3200,11 +3200,11 @@ get_deg_mean_gexp <- function(fxs.mtx,smeta,comp_var="comp_group",comp_vars=list
 	colnames(design) <- c("All", target_col)
 	
 	if (logExpr==1) {
-		deg2.dt = data.table(feat = rownames(fxs.mtx),
-												 AveExpr=log1p(rowMeans(expm1(fxs.mtx),na.rm = T)))
+		deg2.dt = data.table(feat = rownames(fxs.m),
+												 AveExpr=log1p(rowMeans(expm1(fxs.m),na.rm = T)))
 	} else {
-		deg2.dt = data.table(feat = rownames(fxs.mtx),
-												 AveExpr=rowMeans(fxs.mtx,na.rm = T))
+		deg2.dt = data.table(feat = rownames(fxs.m),
+												 AveExpr=rowMeans(fxs.m,na.rm = T))
 	}
 	
 	sample_cnt.dt = smeta[,.N,by=`comp_var`] %>%
@@ -3216,12 +3216,12 @@ get_deg_mean_gexp <- function(fxs.mtx,smeta,comp_var="comp_group",comp_vars=list
 		ctrl_cnt = sample_cnt.dt[comp_group == comp_vars$ctrl,N]
 		if (ctrl_cnt>1) {
 			if (logExpr==1) {
-				deg2.dt$ctrlMean=log1p(rowMeans(expm1(fxs.mtx[,design[,target_col]==0]),na.rm = T))
+				deg2.dt$ctrlMean=log1p(rowMeans(expm1(fxs.m[,design[,target_col]==0]),na.rm = T))
 			} else {
-				deg2.dt$ctrlMean=rowMeans(fxs.mtx[,design[,target_col]==0],na.rm = T)
+				deg2.dt$ctrlMean=rowMeans(fxs.m[,design[,target_col]==0],na.rm = T)
 			}
 		} else {
-			deg2.dt$ctrlMean=fxs.mtx[,design[,target_col]==0]
+			deg2.dt$ctrlMean=fxs.m[,design[,target_col]==0]
 		}
 		deg2.dt$ctrl_cnt = ctrl_cnt
 	} else {
@@ -3233,12 +3233,12 @@ get_deg_mean_gexp <- function(fxs.mtx,smeta,comp_var="comp_group",comp_vars=list
 		expr_cnt = sample_cnt.dt[comp_group == comp_vars$expr,N]
 		if (expr_cnt>1) {
 			if (logExpr==1) {
-				deg2.dt$exprMean=log1p(rowMeans(expm1(fxs.mtx[,design[,target_col]==1]),na.rm = T))
+				deg2.dt$exprMean=log1p(rowMeans(expm1(fxs.m[,design[,target_col]==1]),na.rm = T))
 			} else {
-				deg2.dt$exprMean=rowMeans(fxs.mtx[,design[,target_col]==1],na.rm = T)
+				deg2.dt$exprMean=rowMeans(fxs.m[,design[,target_col]==1],na.rm = T)
 			}
 		} else {
-			deg2.dt$exprMean=fxs.mtx[,design[,target_col]==1]
+			deg2.dt$exprMean=fxs.m[,design[,target_col]==1]
 		}
 		deg2.dt$expr_cnt = expr_cnt
 	} else {
@@ -3254,8 +3254,8 @@ run_wilcoxon_test_obsolete <- function(deg_obj,logExpr=0,debug2=0,ncpu=4) {
 	
 	message(sprintf("wilcox testing in progress ..."))
 	
-	stopifnot(all(colnames(deg_obj$fxs.mtx) %in% deg_obj$smeta$sample))
-	fxs.mtx = deg_obj$fxs.mtx
+	stopifnot(all(colnames(deg_obj$fxs.m) %in% deg_obj$smeta$sample))
+	fxs.m = deg_obj$fxs.m
 	smeta = deg_obj$smeta
 	
 	# ---
@@ -3278,15 +3278,15 @@ run_wilcoxon_test_obsolete <- function(deg_obj,logExpr=0,debug2=0,ncpu=4) {
 		exprs = exprs[!is.na(exprs)]
 		
 		smeta = smeta[sample %in% c(ctrls,exprs),]
-		fxs.mtx = fxs.mtx[,smeta$sample]
+		fxs.m = fxs.m[,smeta$sample]
 	} else {
-		smeta = smeta[match(colnames(fxs.mtx),sample),]
+		smeta = smeta[match(colnames(fxs.m),sample),]
 	}
 	
 	# ---
 	comp_vars = list(ctrl="ctrl",expr="expr")
 	
-	deg1.dt = get_deg_mean_gexp(fxs.mtx,
+	deg1.dt = get_deg_mean_gexp(fxs.m,
 															smeta,
 															comp_var="comp_group",
 															comp_vars=comp_vars,
@@ -3309,9 +3309,9 @@ run_wilcoxon_test_obsolete <- function(deg_obj,logExpr=0,debug2=0,ncpu=4) {
 		# here we use only logFC from limma
 		
 		if (logExpr==1) {
-			fit = lmFit(exp(deg_obj$fxs.mtx), design)
+			fit = lmFit(exp(deg_obj$fxs.m), design)
 		} else {
-			fit = lmFit(deg_obj$fxs.mtx, design)
+			fit = lmFit(deg_obj$fxs.m, design)
 		}
 		
 		fit = eBayes(fit)
@@ -3320,10 +3320,10 @@ run_wilcoxon_test_obsolete <- function(deg_obj,logExpr=0,debug2=0,ncpu=4) {
 			rename(feat="rn")
 		
 		# here to collect p.value
-		deg2.dt = mclapply(1:nrow(deg_obj$fxs.mtx),function(r2) { # for each feat
+		deg2.dt = mclapply(1:nrow(deg_obj$fxs.m),function(r2) { # for each feat
 			# if (debug2==1){browser()}
-			ret = wilcox_tryCatch(deg_obj$fxs.mtx[r2,design[,target_col]==0],
-														deg_obj$fxs.mtx[r2,design[,target_col]==1],
+			ret = wilcox_tryCatch(deg_obj$fxs.m[r2,design[,target_col]==0],
+														deg_obj$fxs.m[r2,design[,target_col]==1],
 														paired = paired.u)
 			
 			p.value=1.
@@ -3364,9 +3364,9 @@ run_wilcoxon_test_obsolete <- function(deg_obj,logExpr=0,debug2=0,ncpu=4) {
 	deg_obj
 }
 
-prep_wilcox_test <- function(fxs.mtx, smeta.dt, comp_col, ctrl_var, expr_var, comp_name="resp", subject_col="",test_method="wilcox",debug2=0) {
+prep_wilcox_test <- function(fxs.m, smeta.dt, comp_col, ctrl_var, expr_var, comp_name="resp", subject_col="",test_method="wilcox",debug2=0) {
 	if (debug2==1){browser()}
-	stopifnot(dim(fxs.mtx)[2]==nrow(smeta.dt))
+	stopifnot(dim(fxs.m)[2]==nrow(smeta.dt))
 	smeta.cnames = colnames(smeta.dt)
 	stopifnot(comp_col %in% smeta.cnames)
 	stopifnot('sample' %in% smeta.cnames)
@@ -3381,7 +3381,7 @@ prep_wilcox_test <- function(fxs.mtx, smeta.dt, comp_col, ctrl_var, expr_var, co
 	test_obj = list()
 	# add comp_sch
 	test_obj[["smeta"]] = smeta.dt2
-	test_obj[["fxs.mtx"]] = fxs.mtx[,smeta.dt2$sample]
+	test_obj[["fxs.m"]] = fxs.m[,smeta.dt2$sample]
 	test_obj[["comp_var"]] = comp_col
 	test_obj[["comp_vars"]] = list(ctrl=ctrl_var,expr=expr_var)
 	
@@ -3408,11 +3408,11 @@ run_wilcoxon_test <- function(deg_obj,logExpr=0,debug2=0,ncpu=4) {
 	}
 	message(sprintf("wilcox testing in progress ..."))
 
-	stopifnot(all(colnames(deg_obj$fxs.mtx) %in% deg_obj$smeta$sample))
-	deg_obj$smeta = deg_obj$smeta[match(colnames(deg_obj$fxs.mtx),sample),]
+	stopifnot(all(colnames(deg_obj$fxs.m) %in% deg_obj$smeta$sample))
+	deg_obj$smeta = deg_obj$smeta[match(colnames(deg_obj$fxs.m),sample),]
 	
 	smeta=deg_obj$smeta
-	# fxs.mtx = deg_obj$gexpr
+	# fxs.m = deg_obj$gexpr
 	comp_col=deg_obj$comp_var
 	stopifnot(comp_col %in% colnames(smeta))
 	
@@ -3423,10 +3423,10 @@ run_wilcoxon_test <- function(deg_obj,logExpr=0,debug2=0,ncpu=4) {
 	if (deg_obj$intra_col!=""){
 		paired.u=T
 		smeta=smeta[order(get(deg_obj$intra_col),get(comp_col)),]
-		deg_obj$fxs.mtx=deg_obj$fxs.mtx[,smeta$sample]
+		deg_obj$fxs.m=deg_obj$fxs.m[,smeta$sample]
 	}
 		
-	deg1.dt = get_deg_mean_gexp(deg_obj$fxs.mtx,
+	deg1.dt = get_deg_mean_gexp(deg_obj$fxs.m,
 															smeta,
 															comp_var=comp_col,
 															comp_vars=comp_vars,
@@ -3450,9 +3450,9 @@ run_wilcoxon_test <- function(deg_obj,logExpr=0,debug2=0,ncpu=4) {
 		# here we use only logFC from limma
 		
 		# if (logExpr==1) {
-		# 	fit = lmFit(exp(deg_obj$fxs.mtx), design)
+		# 	fit = lmFit(exp(deg_obj$fxs.m), design)
 		# } else {
-		# 	fit = lmFit(deg_obj$fxs.mtx, design)
+		# 	fit = lmFit(deg_obj$fxs.m, design)
 		# }
 		# 
 		# fit = eBayes(fit)
@@ -3461,10 +3461,10 @@ run_wilcoxon_test <- function(deg_obj,logExpr=0,debug2=0,ncpu=4) {
 		# 	rename(feat="rn")
 		
 		# here to collect p.value
-		deg2.dt = lapply(1:nrow(deg_obj$fxs.mtx),function(r2) { # for each feat
+		deg2.dt = lapply(1:nrow(deg_obj$fxs.m),function(r2) { # for each feat
 			if (debug2==1){browser()}
-			ret = wilcox_tryCatch(deg_obj$fxs.mtx[r2,design[,target_col]==0],
-														deg_obj$fxs.mtx[r2,design[,target_col]==1],
+			ret = wilcox_tryCatch(deg_obj$fxs.m[r2,design[,target_col]==0],
+														deg_obj$fxs.m[r2,design[,target_col]==1],
 														paired = paired.u)
 			
 			p.value=1.
